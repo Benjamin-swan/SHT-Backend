@@ -1,10 +1,19 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.models.ingredient import Ingredient
+from app.models.recipe import Recipe, RecipeIngredient
 from app.models.user import UserIngredientInput, UserSession
-from app.schemas.recipe import RecipeMatchItem, RecipeRecommendRequest, RecipeRecommendResponse
+from app.schemas.recipe import (
+    RecipeDetailResponse,
+    RecipeIngredientItem,
+    RecipeMatchItem,
+    RecipeRecommendRequest,
+    RecipeRecommendResponse,
+)
 from app.services.llm import get_or_generate_recipes
 from app.services.matcher import find_matching_recipes
 
@@ -30,7 +39,16 @@ async def recommend_recipes(
         4. DB 결과 없음 → Gemini API 호출 (캐시 우선) → 생성된 레시피 반환
     """
     # ── 재료 ID 목록 확정 ──────────────────────────────────────────────────────
-    if body.session_id:
+    # 우선순위: ingredient_names > session_id > ingredient_ids
+    if body.ingredient_names:
+        # 재료명으로 DB에서 UUID를 조회합니다.
+        # 일치하지 않는 이름은 조용히 무시됩니다 (오타, 미등록 재료 등).
+        matched = session.exec(
+            select(Ingredient).where(Ingredient.name.in_(body.ingredient_names))
+        ).all()
+        ingredient_ids = [ing.id for ing in matched]
+
+    elif body.session_id:
         user_session = session.get(UserSession, body.session_id)
         if not user_session:
             raise HTTPException(
@@ -50,7 +68,7 @@ async def recommend_recipes(
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="session_id 또는 ingredient_ids 중 하나는 반드시 전달해야 합니다.",
+            detail="ingredient_names, session_id, ingredient_ids 중 하나는 반드시 전달해야 합니다.",
         )
 
     if not ingredient_ids:
@@ -108,3 +126,51 @@ async def recommend_recipes(
     ]
 
     return RecipeRecommendResponse(total=len(recipes), recipes=recipes)
+
+
+@router.get(
+    "/{recipe_id}",
+    response_model=RecipeDetailResponse,
+    summary="레시피 상세 조회",
+)
+def get_recipe_detail(
+    recipe_id: UUID,
+    session: Session = Depends(get_session),
+) -> RecipeDetailResponse:
+    """
+    레시피 ID로 상세 정보를 반환합니다.
+    재료 목록(이름, 수량, 선택여부)이 함께 포함됩니다.
+    """
+    recipe = session.get(Recipe, recipe_id)
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"recipe_id '{recipe_id}' 를 찾을 수 없습니다.",
+        )
+
+    # 레시피에 연결된 재료 목록 조회
+    recipe_ingredients = session.exec(
+        select(RecipeIngredient).where(RecipeIngredient.recipe_id == recipe_id)
+    ).all()
+
+    ingredients_list = []
+    for ri in recipe_ingredients:
+        ingredient = session.get(Ingredient, ri.ingredient_id)
+        if ingredient:
+            ingredients_list.append(
+                RecipeIngredientItem(
+                    name=ingredient.name,
+                    quantity=ri.quantity,
+                    is_optional=ri.is_optional,
+                )
+            )
+
+    return RecipeDetailResponse(
+        id=recipe.id,
+        title=recipe.title,
+        instructions=recipe.instructions,
+        cooking_time_min=recipe.cooking_time_min,
+        is_llm_generated=recipe.is_llm_generated,
+        source_url=recipe.source_url,
+        ingredients=ingredients_list,
+    )

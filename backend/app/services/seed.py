@@ -3,16 +3,16 @@ from sqlmodel import Session, select
 from app.models.ingredient import Ingredient
 
 FREQUENT_INGREDIENTS = [
-    {"name": "마늘", "category": "frequent"},
-    {"name": "대파", "category": "frequent"},
-    {"name": "양파", "category": "frequent"},
-    {"name": "달걀", "category": "frequent"},
+    {"name": "계란", "category": "frequent"},
     {"name": "김치", "category": "frequent"},
+    {"name": "돼지고기", "category": "frequent"},
+    {"name": "대파", "category": "frequent"},
     {"name": "두부", "category": "frequent"},
-    {"name": "청양고추", "category": "frequent"},
+    {"name": "양파", "category": "frequent"},
+    {"name": "마늘", "category": "frequent"},
+    {"name": "당근", "category": "frequent"},
     {"name": "감자", "category": "frequent"},
-    {"name": "참치캔", "category": "frequent"},
-    {"name": "스팸", "category": "frequent"},
+    {"name": "고추장", "category": "frequent"},
 ]
 
 

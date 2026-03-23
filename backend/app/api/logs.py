@@ -239,13 +239,9 @@ def log_recipe_click(
         2. recipe_id 유효성 검증
         3. InteractionLog 레코드 저장 (event_type="recipe_click")
     """
-    # 1. 세션 유효성 검증
-    user_session = session.get(UserSession, body.session_id)
-    if not user_session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"session_id '{body.session_id}' 를 찾을 수 없습니다.",
-        )
+    # 1. 세션 유효성 검증 (MVP: 없는 세션이어도 로그는 기록)
+    # session_id가 DB에 없을 경우 로그를 건너뛰지 않고 그냥 저장합니다.
+    # 프론트엔드에서 세션 등록 없이 랜덤 UUID를 사용하는 MVP 흐름을 허용합니다.
 
     # 2. 레시피 유효성 검증
     recipe = session.get(Recipe, body.recipe_id)
