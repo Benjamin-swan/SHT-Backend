@@ -245,3 +245,72 @@ uvicorn app.main:app --reload
 - [ ] `app/api/ingredients.py`에 `POST /ingredients` 엔드포인트 추가
 - [ ] 프론트엔드 `client.js`에 `createIngredient(name)` 함수 추가
 - [ ] `IngredientSearchInput.jsx`에 검색 결과 없을 때 "추가하기" 버튼 표시
+
+---
+
+### SHT-BE-8 — 신선도 상태 변경 API 안정화 (PATCH /logs/event/{event_id}/freshness)
+
+**배경**: 프론트엔드 `client.js`에 `updateIngredientFreshness(eventId, freshnessStatus)` 함수가 추가됨. FridgePage에서 세션 가져오기로 추가된 재료(`_eventId` 보유)의 소비기한을 임박으로 수정 시 자동 호출됩니다.
+
+**현재 상태**: 엔드포인트 구현 완료 + 프론트 함수 연결 완료 (FridgePage `saveIngredient` 내 silent fail로 호출)
+
+**Success Criteria**
+- [x] 프론트엔드 `client.js`에 `updateIngredientFreshness(eventId, "임박")` 함수 추가
+- [x] FridgePage `saveIngredient`에서 `_eventId` 보유 재료의 expiryDate가 1일 이하로 바뀔 때 자동 호출
+- [ ] `PATCH /logs/event/{event_id}/freshness` 요청 시 `freshness_status`가 `"임박"`인 경우만 허용 (단방향: 싱싱 → 임박)
+- [ ] 존재하지 않는 `event_id` 입력 시 404 반환
+- [ ] 이미 `"임박"` 상태인 이벤트에 재요청 시 400 또는 현재 상태 그대로 200
+- [ ] 변경 후 `expires_at`이 현재 시각 기준 +24h로 재계산되어 업데이트됨
+
+**TODO**
+- [ ] `app/api/logs.py` PATCH 핸들러에 "이미 임박인 경우" 처리 로직 추가
+- [ ] `expires_at` 재계산 로직을 `services/freshness.py`의 `calculate_expires_at()` 재사용 확인
+- [ ] Swagger 문서에 예시 요청/응답 추가
+- [ ] E2E: 세션 가져오기 → FridgePage 수정 → PATCH 호출 → DB 반영 확인
+
+---
+
+### SHT-BE-9 — 세션 식재료 조회 API 안정화 (GET /sessions/{session_id}/ingredients)
+
+**배경**: 프론트엔드 `client.js`에 `getSessionIngredients(sessionId)` 함수 추가 완료. FridgePage에 "세션 가져오기" 버튼 구현 완료. session_id가 localStorage에 있을 때만 버튼 노출되며, 가져온 재료에는 `_eventId`가 저장됩니다.
+
+**현재 상태**: 엔드포인트 구현 완료 + 프론트 연결 완료 (FridgePage `handleSessionImport`)
+
+**Success Criteria**
+- [x] 프론트엔드 `client.js`에 `getSessionIngredients(sessionId)` 함수 추가
+- [x] FridgePage에 "세션 가져오기" 버튼 구현 (session_id 있을 때만 노출)
+- [x] 가져온 재료에 `_eventId` 저장 → BE-8 freshness 업데이트와 연결
+- [ ] `GET /sessions/{session_id}/ingredients` 응답에 `is_expired` 필드 포함 확인
+- [ ] 존재하지 않는 `session_id` 입력 시 404 반환
+- [ ] 빈 세션(재료 없음) 시 빈 배열 `[]` 반환 (404 아님)
+- [ ] 응답 필드 확인: `event_id`, `ingredient_id`, `ingredient_name`, `input_method`, `freshness_status`, `expires_at`, `is_expired`, `created_at`
+
+**TODO**
+- [ ] `app/api/logs.py` GET 핸들러에서 `is_expired` 계산 시 `services/freshness.py`의 `is_expired()` 재사용 확인
+- [ ] `app/schemas/log.py`의 `SessionIngredientItem` 스키마 필드 검증
+- [ ] 세션 만료(24h) 후에도 이력 조회 가능한지 확인
+- [ ] E2E: 세션 생성 → 재료 로그 → FridgePage 가져오기 → 냉장고에 정상 추가 확인
+
+---
+
+### SHT-BE-10 — 레시피 클릭 이력 조회 API 안정화 (GET /logs/interactions/{session_id})
+
+**배경**: 프론트엔드 `SavedPage.jsx`(`/saved` 라우트) 신규 구현 완료. 백엔드 `GET /logs/interactions/{session_id}`로 클릭 이력을 가져와 "저장된 레시피" 목록을 표시합니다. 세션 미등록 또는 API 실패 시 localStorage 폴백.
+
+**현재 상태**: 엔드포인트 구현 완료 + `SavedPage.jsx` 연결 완료
+
+**Success Criteria**
+- [x] 프론트엔드 `client.js`에 `getInteractionLogs(sessionId)` 함수 추가
+- [x] `SavedPage.jsx` 구현: 백엔드 우선 → localStorage 폴백 로직
+- [x] 데이터 출처 표시("백엔드 세션 기록" vs "기기 내 저장 기록") 구현
+- [x] 로딩 스피너 + 빈 상태 UI 구현
+- [ ] `GET /logs/interactions/{session_id}` 응답 최신순 정렬(`created_at DESC`) 확인
+- [ ] 각 항목에 `recipe_title` 포함 (`recipes` JOIN) 확인
+- [ ] 존재하지 않는 `session_id` 입력 시 404 반환
+- [ ] 빈 세션(클릭 없음) 시 빈 배열 `[]` 반환
+
+**TODO**
+- [ ] `app/api/logs.py` GET 핸들러 `created_at DESC` 정렬 확인
+- [ ] `app/schemas/log.py`의 `InteractionLogItem` 스키마 필드 검증
+- [ ] 세션 만료 후에도 이력 조회 가능한지 확인
+- [ ] E2E: 세션 생성 → 레시피 클릭 → `/saved` 접속 → 백엔드 이력 렌더링 확인
