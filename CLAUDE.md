@@ -221,3 +221,27 @@ uvicorn app.main:app --reload
 - LLM 비용 절감을 위해 **LLM_CACHE** 테이블로 동일 재료 조합 캐싱
 - 식재료 데이터는 **엑셀 → `scripts/import_recipes.py`** 로 최초 1회 임포트
 - 신선도 유효기간: 냉장고 등록 재료 기준 **+48h**, 직접 입력 기준 **+24h**
+
+---
+
+## 백엔드 백로그
+
+### SHT-BE-7 — LLM 기반 신규 식재료 자동 등록 (POST /ingredients)
+- 사용자가 DB에 없는 식재료명을 입력하면 LLM이 식용 가능 여부와 카테고리를 판단하여 자동으로 DB에 등록합니다.
+- 이미 존재하는 식재료는 LLM 호출 없이 기존 데이터를 반환합니다 (중복 방지).
+- 식용 불가 입력(예: "나무", "돌") 시 422 에러를 반환합니다.
+
+**Success Criteria**
+- [ ] `POST /ingredients` 요청 시 DB에 이미 있으면 LLM 호출 없이 기존 데이터 반환 (200)
+- [ ] DB에 없는 식재료명 입력 시 LLM이 식용 여부 + 카테고리를 JSON으로 응답
+- [ ] LLM이 식용 가능으로 판단하면 `ingredients` 테이블에 자동 INSERT 후 201 반환
+- [ ] LLM이 식용 불가로 판단하면 422 Unprocessable Entity 반환
+- [ ] 응답에 `is_new` 필드로 신규 등록 여부를 표시
+- [ ] LLM 호출은 레시피 추천(`POST /recipes/recommend`)과 독립적으로 동작 (추가 호출 없음)
+
+**TODO**
+- [ ] `app/schemas/ingredient.py`에 `IngredientCreateRequest`, `IngredientCreateResponse` 추가
+- [ ] `app/services/llm.py`에 `classify_ingredient(name)` 함수 추가 (식용 여부 + 카테고리 반환)
+- [ ] `app/api/ingredients.py`에 `POST /ingredients` 엔드포인트 추가
+- [ ] 프론트엔드 `client.js`에 `createIngredient(name)` 함수 추가
+- [ ] `IngredientSearchInput.jsx`에 검색 결과 없을 때 "추가하기" 버튼 표시

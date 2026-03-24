@@ -166,6 +166,35 @@ def save_parsed_recipes(parsed: dict[str, Any], db: Session) -> list[Recipe]:
     return saved
 
 
+# ── 식재료 분류 ────────────────────────────────────────────────────────────────
+
+async def classify_ingredient(name: str) -> dict[str, Any]:
+    """
+    LLM을 호출하여 입력된 이름이 식용 가능한 식재료인지 판단하고 카테고리를 반환합니다.
+
+    Returns:
+        {"is_food": True, "category": "과일"}   — 식용 가능
+        {"is_food": False, "category": None}    — 식용 불가
+
+    카테고리 예시: 채소, 과일, 육류, 해산물, 유제품, 곡물, 양념, 버섯, 두류, 견과류, 가공식품
+    """
+    prompt = f"""다음 입력이 요리에 사용할 수 있는 식재료인지 판단하세요.
+식용 가능하면 카테고리도 함께 반환하세요.
+코드 블록 없이 순수 JSON만 반환하세요.
+
+입력: "{name}"
+
+반환 형식:
+{{"is_food": true, "category": "채소"}}
+또는
+{{"is_food": false, "category": null}}
+
+카테고리는 다음 중 하나만 사용하세요: 채소, 과일, 육류, 해산물, 유제품, 곡물, 양념, 버섯, 두류, 견과류, 가공식품"""
+
+    response_text = await call_gemini_api(prompt)
+    return parse_gemini_response(response_text)
+
+
 # ── 캐시 + 생성 통합 ────────────────────────────────────────────────────────────
 
 async def get_or_generate_recipes(

@@ -16,3 +16,24 @@ class IngredientResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class IngredientCreateRequest(BaseModel):
+    """POST /ingredients 요청 스키마."""
+
+    name: str
+
+
+class IngredientCreateResponse(BaseModel):
+    """
+    POST /ingredients 응답 스키마.
+    is_new: 이번 요청으로 새로 등록된 경우 True, 기존에 존재하던 경우 False.
+    """
+
+    id: UUID
+    name: str
+    category: str
+    created_at: datetime
+    is_new: bool
+
+    model_config = {"from_attributes": True}
