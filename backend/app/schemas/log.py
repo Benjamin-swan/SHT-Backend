@@ -90,11 +90,11 @@ class SessionIngredientItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── POST /logs/recipe-click ───────────────────────────────────────────────────
+# ── POST /logs/interaction ───────────────────────────────────────────────────
 
-class RecipeClickRequest(BaseModel):
+class RecipeInteractionRequest(BaseModel):
     """
-    추천 레시피 클릭 이벤트 요청 스키마.
+    레시피 상호작용 이벤트 요청 스키마 (클릭, 저장, 저장 취소).
 
     extra_data 예시:
         {
@@ -104,15 +104,18 @@ class RecipeClickRequest(BaseModel):
     """
 
     session_id: UUID = Field(description="현재 사용자 세션 ID")
-    recipe_id: UUID = Field(description="클릭된 레시피 ID")
+    recipe_id: UUID = Field(description="상호작용된 레시피 ID")
+    event_type: Literal["recipe_click", "recipe_save", "recipe_unsave"] = Field(
+        default="recipe_click", description="상호작용 종류"
+    )
     extra_data: Optional[dict[str, Any]] = Field(
         default=None,
         description="부가 정보 (클릭 순위, 매칭 비율 등)",
     )
 
 
-class RecipeClickResponse(BaseModel):
-    """추천 레시피 클릭 이벤트 저장 응답 스키마."""
+class RecipeInteractionResponse(BaseModel):
+    """추천 레시피 상호작용 이벤트 저장 응답 스키마."""
 
     log_id: UUID
     session_id: UUID

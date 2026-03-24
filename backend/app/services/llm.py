@@ -46,8 +46,10 @@ def build_prompt(ingredient_names: list[str]) -> str:
 - 제공된 식재료({ingredients_str})만을 주재료로 사용하세요.
 - 물, 소금, 후추, 식용유, 설탕, 간장, 참기름, 다진마늘 등 기본 조미료는 추가 사용 허용합니다.
 - 그 외 주재료(고기, 해산물, 채소 등)는 임의로 추가하지 마세요.
-- 레시피명(title)은 영문 병기 없이 순수 한글로만 작성하세요 (예: "달걀장조림").
+- 레시피명(title)은 수식어·형용사 없이 요리명만 순수 한글로 작성하세요 (예: "달걀장조림", "스팸볶음밥"). "맛있는", "황금", "특제" 같은 형용사는 절대 붙이지 마세요.
+- 조리 순서(instructions)는 최소 3단계, 최대 5단계로만 작성하세요. 각 단계는 한 문장으로 간결하게 작성하세요.
 - 각 레시피마다 실용적인 셰프의 팁(chef_tip)을 한 문장으로 제공하세요.
+- 난이도(difficulty)는 EASY / NORMAL / HARD 중 하나로 판단하세요.
 - 코드 블록(```)을 사용하지 말고, 순수 JSON만 반환하세요.
 
 식재료: {ingredients_str}
@@ -56,8 +58,9 @@ def build_prompt(ingredient_names: list[str]) -> str:
 {{
   "recipes": [
     {{
-      "title": "레시피명 (한글만)",
+      "title": "레시피명 (한글만, 형용사 없이)",
       "cooking_time_min": 30,
+      "difficulty": "EASY",
       "instructions": "1. 단계별 조리 방법\\n2. 다음 단계",
       "ingredients": [
         {{"name": "재료명", "quantity": "수량", "is_optional": false}}
@@ -155,11 +158,15 @@ def save_parsed_recipes(parsed: dict[str, Any], db: Session) -> list[Recipe]:
             saved.append(existing)
             continue
 
-        # 셰프의 팁을 DB 스키마 변경 없이 저장하기 위해 instructions 끝에 추가합니다.
+        # 셰프의 팁과 난이도를 DB 스키마 변경 없이 instructions 끝에 태그로 저장합니다.
         instructions_text = r.get("instructions", "")
         chef_tip_text = r.get("chef_tip")
         if chef_tip_text:
             instructions_text += f"\n\n[CHEF_TIP]\n{chef_tip_text}"
+        difficulty_text = r.get("difficulty", "EASY").upper()
+        if difficulty_text not in ("EASY", "NORMAL", "HARD"):
+            difficulty_text = "EASY"
+        instructions_text += f"\n\n[DIFFICULTY]\n{difficulty_text}"
 
         recipe = Recipe(
             title=r["title"],
@@ -195,7 +202,7 @@ async def classify_ingredient(name: str) -> dict[str, Any]:
         {"is_food": True, "category": "과일"}   — 식용 가능
         {"is_food": False, "category": None}    — 식용 불가
 
-    카테고리 예시: 채소, 과일, 육류, 해산물, 유제품, 곡물, 양념, 버섯, 두류, 견과류, 가공식품
+    카테고리 예시: grain, 단백질, 채소, 달걀, 양념, 발효
     """
     prompt = f"""다음 입력이 요리에 사용할 수 있는 식재료인지 판단하세요.
 식용 가능하면 카테고리도 함께 반환하세요.
@@ -208,7 +215,7 @@ async def classify_ingredient(name: str) -> dict[str, Any]:
 또는
 {{"is_food": false, "category": null}}
 
-카테고리는 다음 중 하나만 사용하세요: 채소, 과일, 육류, 해산물, 유제품, 곡물, 양념, 버섯, 두류, 견과류, 가공식품"""
+카테고리는 다음 중 하나만 사용하세요: grain, 단백질, 채소, 달걀, 양념, 발효"""
 
     response_text = await call_gemini_api(prompt)
     return parse_gemini_response(response_text)

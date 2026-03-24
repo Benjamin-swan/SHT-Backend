@@ -40,13 +40,19 @@ async def recommend_recipes(
     """
     # ── 재료 ID 목록 확정 ──────────────────────────────────────────────────────
     # 우선순위: ingredient_names > session_id > ingredient_ids
+    skip_db_match = False  # DB 매칭을 건너뛰고 LLM으로 직행할지 여부
     if body.ingredient_names:
         # 재료명으로 DB에서 UUID를 조회합니다.
-        # 일치하지 않는 이름은 조용히 무시됩니다 (오타, 미등록 재료 등).
         matched = session.exec(
             select(Ingredient).where(Ingredient.name.in_(body.ingredient_names))
         ).all()
         ingredient_ids = [ing.id for ing in matched]
+
+        # 입력 재료 중 DB에 없는 것이 하나라도 있으면 DB 매칭을 건너뜁니다.
+        # 예: "스팸, 라면" 입력 시 라면이 DB에 없으면 스팸 단독 레시피가 반환되는 문제 방지.
+        # LLM은 원본 ingredient_names 전체를 받아 올바른 조합으로 레시피를 생성합니다.
+        if len(ingredient_ids) < len(body.ingredient_names):
+            skip_db_match = True
 
     elif body.session_id:
         user_session = session.get(UserSession, body.session_id)
@@ -75,7 +81,7 @@ async def recommend_recipes(
         return RecipeRecommendResponse(total=0, recipes=[])
 
     # ── DB 매칭 시도 ──────────────────────────────────────────────────────────
-    match_results = find_matching_recipes(
+    match_results = [] if skip_db_match else find_matching_recipes(
         ingredient_ids=ingredient_ids,
         session=session,
         limit=body.limit,
@@ -165,11 +171,21 @@ def get_recipe_detail(
                 )
             )
 
+    # instructions에서 [DIFFICULTY] 태그를 파싱합니다.
+    # 저장 형식: "...조리내용...\n\n[CHEF_TIP]\n팁\n\n[DIFFICULTY]\nEASY"
+    difficulty = None
+    instructions_clean = recipe.instructions
+    if recipe.instructions and "[DIFFICULTY]" in recipe.instructions:
+        parts = recipe.instructions.split("[DIFFICULTY]")
+        instructions_clean = parts[0].strip()
+        difficulty = parts[1].strip().splitlines()[0].strip()
+
     return RecipeDetailResponse(
         id=recipe.id,
         title=recipe.title,
-        instructions=recipe.instructions,
+        instructions=instructions_clean,
         cooking_time_min=recipe.cooking_time_min,
+        difficulty=difficulty,
         is_llm_generated=recipe.is_llm_generated,
         source_url=recipe.source_url,
         ingredients=ingredients_list,

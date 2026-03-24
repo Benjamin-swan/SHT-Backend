@@ -13,9 +13,10 @@ from app.schemas.log import (
     FreshnessUpdateResponse,
     IngredientEventRequest,
     IngredientEventResponse,
+    IngredientEventResponse,
     InteractionLogItem,
-    RecipeClickRequest,
-    RecipeClickResponse,
+    RecipeInteractionRequest,
+    RecipeInteractionResponse,
     SessionIngredientItem,
 )
 from app.services.freshness import calculate_expires_at, is_expired
@@ -219,25 +220,25 @@ def get_session_ingredients(
     return result
 
 
-# ── POST /logs/recipe-click ───────────────────────────────────────────────────
+# ── POST /logs/interaction ───────────────────────────────────────────────────
 
 @router.post(
-    "/logs/recipe-click",
-    response_model=RecipeClickResponse,
+    "/logs/interaction",
+    response_model=RecipeInteractionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="추천 레시피 클릭 이벤트 저장",
+    summary="추천 레시피 상호작용 이벤트 저장",
 )
-def log_recipe_click(
-    body: RecipeClickRequest,
+def log_recipe_interaction(
+    body: RecipeInteractionRequest,
     session: Session = Depends(get_session),
-) -> RecipeClickResponse:
+) -> RecipeInteractionResponse:
     """
-    사용자가 추천 레시피를 클릭했을 때 이벤트를 저장합니다.
+    사용자가 추천 레시피를 클릭하거나 저장(하트)했을 때 이벤트를 저장합니다.
 
     처리 흐름:
         1. session_id 유효성 검증
         2. recipe_id 유효성 검증
-        3. InteractionLog 레코드 저장 (event_type="recipe_click")
+        3. InteractionLog 레코드 저장 (event_type 동적 적용)
     """
     # 1. 세션 유효성 검증 (MVP: 없는 세션이어도 로그는 기록)
     # session_id가 DB에 없을 경우 로그를 건너뛰지 않고 그냥 저장합니다.
@@ -251,18 +252,18 @@ def log_recipe_click(
             detail=f"recipe_id '{body.recipe_id}' 를 찾을 수 없습니다.",
         )
 
-    # 3. 클릭 이벤트 저장
+    # 3. 이벤트 저장
     log = InteractionLog(
         session_id=body.session_id,
         recipe_id=body.recipe_id,
-        event_type="recipe_click",
+        event_type=body.event_type,
         extra_data=body.extra_data,
     )
     session.add(log)
     session.commit()
     session.refresh(log)
 
-    return RecipeClickResponse(
+    return RecipeInteractionResponse(
         log_id=log.id,
         session_id=log.session_id,
         recipe_id=log.recipe_id,

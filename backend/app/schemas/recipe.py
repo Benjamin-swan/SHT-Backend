@@ -67,6 +67,7 @@ class RecipeDetailResponse(BaseModel):
     title: str
     instructions: Optional[str]
     cooking_time_min: Optional[int]
+    difficulty: Optional[str]
     is_llm_generated: bool
     source_url: Optional[str]
     ingredients: list[RecipeIngredientItem]
