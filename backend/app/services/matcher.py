@@ -60,8 +60,9 @@ def find_matching_recipes(
     all_ingredients = session.exec(select(Ingredient)).all()
     ingredient_name_map: dict[UUID, str] = {ing.id: ing.name for ing in all_ingredients}
 
-    # 전체 레시피 조회
-    recipes = session.exec(select(Recipe)).all()
+    # 시드 레시피만 조회 (LLM 생성 레시피는 DB 매칭 대상에서 제외)
+    # LLM 레시피를 매칭 대상에 포함하면 이전 조합의 레시피가 전혀 다른 재료 조합에서도 반환되는 문제 발생
+    recipes = session.exec(select(Recipe).where(Recipe.is_llm_generated == False)).all()
 
     results: list[RecipeMatchResult] = []
 

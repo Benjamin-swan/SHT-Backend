@@ -84,7 +84,7 @@ async def recommend_recipes(
     match_results = [] if skip_db_match else find_matching_recipes(
         ingredient_ids=ingredient_ids,
         session=session,
-        limit=body.limit,
+        limit=3,
     )
 
     if match_results:
@@ -103,10 +103,15 @@ async def recommend_recipes(
         ]
         return RecipeRecommendResponse(total=len(recipes), recipes=recipes)
 
-    # ── DB 결과 없음 → Gemini API 호출 ───────────────────────────────────────
-    # 재료 ID → 재료명 변환 (LLM 프롬프트용)
-    ingredients = [session.get(Ingredient, iid) for iid in ingredient_ids]
-    ingredient_names = [ing.name for ing in ingredients if ing]
+    # ── DB 결과 없음 → LLM API 호출 ──────────────────────────────────────────
+    # LLM에 전달할 재료명 확정:
+    # ingredient_names로 요청이 들어온 경우 원본을 그대로 사용합니다.
+    # ID→이름 변환 시 DB에 없는 재료(예: 치킨, 칸쵸)가 누락되는 버그 방지.
+    if body.ingredient_names:
+        ingredient_names = body.ingredient_names
+    else:
+        ingredients = [session.get(Ingredient, iid) for iid in ingredient_ids]
+        ingredient_names = [ing.name for ing in ingredients if ing]
 
     if not ingredient_names:
         return RecipeRecommendResponse(total=0, recipes=[])

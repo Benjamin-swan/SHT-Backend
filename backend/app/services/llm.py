@@ -12,8 +12,7 @@ from app.models.recipe import Recipe, RecipeIngredient
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-# 우선순위 순서로 시도할 모델 목록
-# Rate Limit 또는 할당량 초과 시 다음 모델로 자동 폴백
+# 호출 순서: Gemini 2.5 Flash → gemma-3-27b-it (429 폴백)
 GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemma-3-27b-it",
@@ -32,21 +31,57 @@ def build_ingredients_hash(ingredient_names: list[str]) -> str:
 
 
 def build_prompt(ingredient_names: list[str]) -> str:
-    """Gemini에 전달할 레시피 생성 프롬프트를 작성합니다."""
+    """LLM에 전달할 레시피 생성 프롬프트를 작성합니다. (Groq / Gemini 공통 사용)"""
     ingredients_str = ", ".join(ingredient_names)
     return f"""당신은 한국 요리 전문가입니다.
 
 [사전 검증 규칙 — 반드시 먼저 확인하세요]
-1. 입력된 재료 중 한국어 오타 또는 발음 유사 표기(예: 딸끼잼→딸기잼, 게란→계란, 두붸→두부)는 올바른 식재료명으로 자동 교정하여 레시피에 사용하세요.
-2. 입력된 재료 중 하나라도 음식이 아닌 것(예: 나무, 돌, 플라스틱, 세제, 종이 등)이 포함되면 반드시 {{"recipes": []}} 만 반환하세요.
-3. 입력된 재료 중 하나라도 사람에게 해롭거나 독성이 있는 물질(독극물, 화학물질, 농약, 의약품 등)이 포함되면 반드시 {{"recipes": []}} 만 반환하세요.
-4. 위 2·3번 조건에 해당하지 않으면 반드시 정확히 3개의 레시피를 만드세요.
+
+1. [정규화] 입력값을 그대로 식재료로 취급하되, 아래 유형만 변환하세요:
+   - 브랜드명 포함(가공식품): 동원참치캔→참치, 스팸→햄, 비비고김치→김치, 풀무원두부→두부, 오뚜기마요네즈→마요네즈, 햇반→밥, CJ햇반→밥
+   - 한국 과자/스낵 브랜드: 칸쵸→초코과자, 새우깡→새우맛과자, 오레오→초코샌드위치쿠키, 포카칩→감자칩, 꼬깔콘→옥수수과자
+   - 영문 표기: spam→햄, cheese→치즈, egg→계란
+   - 용량/단위/조사 포함: 계란10개→계란, 돼지고기300g→돼지고기
+   - 냉동 표기: 냉동만두→만두, 냉동새우→새우
+   - 그 외 모든 입력(요리명, 떡류, 완성품, 가공식품 등)은 그대로 식재료로 사용하세요.
+     예: 송편→송편, 치킨→치킨, 김치찌개→김치찌개, 라면→라면 (변환 없이 그대로 활용)
+
+2. [차단] 아래 경우에만 {{"recipes": []}} 를 반환하세요 (판단이 애매하면 레시피를 만드세요):
+   - 명백히 음식이 아닌 것: 나무, 돌, 플라스틱, 세제, 종이, 조리도구
+   - 독성/유해 물질: 독극물, 화학물질, 농약, 의약품
+   - 식재료를 전혀 특정할 수 없는 자연어: "아무거나", "냉장고에 있는 거 다"
+
+3. [주의 레시피 생성] 레시피를 생성하되 instructions 마지막에 주의사항 1문장을 추가하세요:
+   - 주요 알레르기 유발 식품 포함 시: "※ 해당 식품 알레르기가 있는 경우 주의하세요."
+   - 날것으로 먹으면 위험한 식품 포함 시: "※ 반드시 충분히 가열 조리 후 섭취하세요."
+
+4. [재료 수 제한] 입력 재료가 10개를 초과하면 앞에서부터 10개만 사용하세요.
+
+5. [정상 진행] 위 1~4번에 해당하지 않으면 반드시 정확히 3개의 레시피를 만드세요.
 
 [레시피 생성 규칙]
-- 제공된 식재료({ingredients_str})만을 주재료로 사용하세요.
-- 물, 소금, 후추, 식용유, 설탕, 간장, 참기름, 다진마늘 등 기본 조미료는 추가 사용 허용합니다.
-- 그 외 주재료(고기, 해산물, 채소 등)는 임의로 추가하지 마세요.
-- 레시피명(title)은 수식어·형용사 없이 요리명만 순수 한글로 작성하세요 (예: "달걀장조림", "스팸볶음밥"). "맛있는", "황금", "특제" 같은 형용사는 절대 붙이지 마세요.
+- 사용 가능한 재료는 오직 아래 두 가지입니다:
+  A) 사용자가 제공한 식재료: {ingredients_str}
+  B-1) 필수 기본 조미료(항상 보유 중이라 가정, is_optional: false): 물, 소금, 후추, 식용유, 설탕, 간장, 참기름, 다진마늘, 식초, 고춧가루, 된장, 고추장
+  B-2) 선택 기본 조미료(없을 수도 있으므로 is_optional: true로 표시): 버터, 올리브오일, 깨
+- 기본 조미료는 반드시 적극적으로 활용하여 맛있는 요리를 완성하세요. 조미료 없이 밋밋한 레시피를 만들지 마세요.
+- 1인분 기준으로 레시피를 작성하세요. 사용자가 입력한 재료의 양이 소량(예: 밥 1컵, 오이 1개, 치즈 1장)이면 1인분으로 판단하세요.
+
+- ★ 레시피의 ingredients 목록에 재료를 추가하기 전, 반드시 아래 질문을 스스로 확인하세요:
+  "이 재료가 A 또는 B 목록에 있는가?"
+  → YES: 포함 가능
+  → NO: 절대 포함 불가. 해당 재료 없이 만들 수 있는 다른 요리로 대체하세요.
+
+- 나쁜 예 (절대 금지): 입력이 [크림치즈, 밥]인데 ingredients에 "빵"을 추가하거나 title을 "크림치즈 샌드위치"로 짓는 것
+- 좋은 예: 입력이 [크림치즈, 밥]이면 → "크림치즈 주먹밥", "크림치즈 볶음밥", "크림치즈 덮밥" 처럼 실제 보유 재료만으로 구성
+
+- 재료가 적어 보여도 괜찮습니다. 있는 재료만으로 최대한 활용하는 것이 이 서비스의 핵심입니다.
+- 레시피명(title)은 실제 한국 가정식·식당에서 쓰는 자연스러운 요리명을 사용하세요.
+  - 올바른 예: "김치찌개", "계란말이", "두부조림", "콩나물무침", "제육볶음", "된장찌개", "소고기미역국"
+  - 잘못된 예: "채소와 계란의 조화", "영양 가득 두부요리", "특제 볶음 요리" (설명형·창작형 금지)
+  - 가능하면 [주재료 + 조리법] 형태로 작성하세요 (예: 볶음·조림·찌개·국·무침·전·구이·탕·밥)
+  - 단, 과자·스낵류(예: 칸쵸, 새우깡, 오레오 등)는 조림·무침·찌개 같은 조리법을 붙이지 마세요. 대신 자연스러운 활용법(예: 칸쵸치킨, 칸쵸크러스트 등)으로 표현하세요.
+  - "맛있는", "황금", "특제", "간단", "초간단", "영양" 같은 수식어는 절대 붙이지 마세요.
 - 조리 순서(instructions)는 최소 3단계, 최대 5단계로만 작성하세요. 각 단계는 한 문장으로 간결하게 작성하세요.
 - 각 레시피마다 실용적인 셰프의 팁(chef_tip)을 한 문장으로 제공하세요.
 - 난이도(difficulty)는 EASY / NORMAL / HARD 중 하나로 판단하세요.
@@ -71,31 +106,38 @@ def build_prompt(ingredient_names: list[str]) -> str:
 }}"""
 
 
-# ── Gemini API 호출 ────────────────────────────────────────────────────────────
+# ── LLM API 호출 ────────────────────────────────────────────────────────────────
+# 호출 순서: [1] Gemini 2.5 Flash → [2] gemma-3-27b-it (429 폴백)
+# 앞 모델이 성공하면 뒤 모델은 호출하지 않습니다.
 
-async def call_gemini_api(prompt: str) -> str:
+async def call_llm_api(prompt: str) -> str:
     """
-    GEMINI_MODELS 우선순위에 따라 순차적으로 시도합니다.
-    429 또는 할당량 초과 시 다음 모델로 자동 폴백합니다.
+    LLM 호출 통합 함수.
+    - 1순위: Gemini 2.5 Flash
+    - 2순위: gemma-3-27b-it (429 Rate Limit 폴백)
     모든 모델 실패 시 HTTPException 503 을 반환합니다.
     """
     from fastapi import HTTPException
 
     last_error: str = ""
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         for model in GEMINI_MODELS:
             url = f"{GEMINI_BASE_URL}/{model}:generateContent?key={settings.gemini_api_key}"
+            # thinkingBudget=0: Gemini 2.5 Flash의 thinking 모드 비활성화 → 응답 속도 개선
             response = await client.post(
                 url,
-                json={"contents": [{"parts": [{"text": prompt}]}]},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"thinkingConfig": {"thinkingBudget": 0}},
+                },
             )
 
             if response.status_code == 200:
                 data = response.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"]
 
-            # 429 또는 할당량 초과 → 다음 모델로 폴백
+            # 429 → 다음 모델로 폴백
             if response.status_code == 429:
                 last_error = f"{model}: Rate Limit 초과"
                 print(f"[llm] {last_error} → 다음 모델로 전환")
@@ -107,11 +149,11 @@ async def call_gemini_api(prompt: str) -> str:
 
     raise HTTPException(
         status_code=503,
-        detail=f"모든 Gemini 모델 호출에 실패했습니다. ({last_error})",
+        detail=f"모든 LLM 모델 호출에 실패했습니다. ({last_error})",
     )
 
 
-def parse_gemini_response(text: str) -> dict[str, Any]:
+def parse_llm_response(text: str) -> dict[str, Any]:
     """
     Gemini 응답 텍스트에서 JSON을 파싱합니다.
     마크다운 코드 블록(```json ... ```)이 포함된 경우도 처리합니다.
@@ -159,7 +201,14 @@ def save_parsed_recipes(parsed: dict[str, Any], db: Session) -> list[Recipe]:
             continue
 
         # 셰프의 팁과 난이도를 DB 스키마 변경 없이 instructions 끝에 태그로 저장합니다.
-        instructions_text = r.get("instructions", "")
+        # LLM이 instructions를 배열로 반환하는 경우 줄바꿈 문자열로 변환합니다.
+        instructions_raw = r.get("instructions", "")
+        if isinstance(instructions_raw, list):
+            instructions_text = "\n".join(
+                f"{i + 1}. {step}" for i, step in enumerate(instructions_raw)
+            )
+        else:
+            instructions_text = instructions_raw
         chef_tip_text = r.get("chef_tip")
         if chef_tip_text:
             instructions_text += f"\n\n[CHEF_TIP]\n{chef_tip_text}"
@@ -217,8 +266,8 @@ async def classify_ingredient(name: str) -> dict[str, Any]:
 
 카테고리는 다음 중 하나만 사용하세요: grain, 단백질, 채소, 달걀, 양념, 발효"""
 
-    response_text = await call_gemini_api(prompt)
-    return parse_gemini_response(response_text)
+    response_text = await call_llm_api(prompt)
+    return parse_llm_response(response_text)
 
 
 # ── 캐시 + 생성 통합 ────────────────────────────────────────────────────────────
@@ -262,8 +311,10 @@ async def get_or_generate_recipes(
 
     # 2. Gemini API 호출
     prompt = build_prompt(ingredient_names)
-    response_text = await call_gemini_api(prompt)
-    parsed = parse_gemini_response(response_text)
+    response_text = await call_llm_api(prompt)
+    print(f"[llm] raw response: {response_text[:500]}")  # 디버그: 실제 LLM 응답 확인용
+    parsed = parse_llm_response(response_text)
+    print(f"[llm] parsed recipes count: {len(parsed.get('recipes', []))}")
 
     # 3. 비식품/독성 재료 포함 시 — 빈 목록 반환 (캐시 저장 안 함)
     # LLM이 검증 규칙에 따라 {"recipes": []} 를 반환한 경우입니다.
