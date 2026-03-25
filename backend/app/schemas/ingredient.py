@@ -22,6 +22,7 @@ class IngredientCreateRequest(BaseModel):
     """POST /ingredients 요청 스키마."""
 
     name: str
+    category: str | None = None
 
 
 class IngredientCreateResponse(BaseModel):

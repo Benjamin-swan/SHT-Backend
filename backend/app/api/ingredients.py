@@ -60,6 +60,7 @@ async def create_ingredient(
         4. 식용 가능 → DB INSERT 후 반환 (201, is_new=True)
     """
     name = body.name.strip()
+    category_from_user = getattr(body, "category", None)
 
     # 1. 중복 확인 — LLM 호출 없이 즉시 반환 (200)
     existing = session.exec(
@@ -87,7 +88,8 @@ async def create_ingredient(
         )
 
     # 4. DB에 저장 (201)
-    ingredient = Ingredient(name=name, category=result["category"])
+    final_category = category_from_user if category_from_user else result.get("category")
+    ingredient = Ingredient(name=name, category=final_category)
     session.add(ingredient)
     session.commit()
     session.refresh(ingredient)
