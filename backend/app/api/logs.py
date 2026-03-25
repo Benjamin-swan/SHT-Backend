@@ -240,9 +240,19 @@ def log_recipe_interaction(
         2. recipe_id 유효성 검증
         3. InteractionLog 레코드 저장 (event_type 동적 적용)
     """
-    # 1. 세션 유효성 검증 (MVP: 없는 세션이어도 로그는 기록)
-    # session_id가 DB에 없을 경우 로그를 건너뛰지 않고 그냥 저장합니다.
-    # 프론트엔드에서 세션 등록 없이 랜덤 UUID를 사용하는 MVP 흐름을 허용합니다.
+    # 1. session_id가 user_sessions에 없으면 자동 생성 (MVP 허용 흐름)
+    user_session = session.get(UserSession, body.session_id)
+    if not user_session:
+        anon_user = AnonymousUser(browser_uuid=str(body.session_id))
+        session.add(anon_user)
+        session.flush()
+        user_session = UserSession(
+            id=body.session_id,
+            anonymous_user_id=anon_user.id,
+            expires_at=datetime.utcnow() + timedelta(hours=SESSION_TTL_HOURS),
+        )
+        session.add(user_session)
+        session.flush()
 
     # 2. 레시피 유효성 검증
     recipe = session.get(Recipe, body.recipe_id)
