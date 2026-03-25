@@ -115,6 +115,7 @@ uvicorn app.main:app --reload
 |--------|------|------|
 | GET | `/ingredients` | 식재료 전체 목록 조회 |
 | GET | `/ingredients?category=frequent` | 빈출 식재료만 조회 |
+| POST | `/ingredients` | 신규 식재료 등록 (LLM 식용 검증 및 사용자 카테고리 오버라이딩 적용) |
 | POST | `/recipes/recommend` | 보유 식재료 기반 레시피 추천 |
 | POST | `/logs/event` | 재료 입력 이벤트 로그 저장 |
 | GET | `/health` | 서버 상태 확인 |
@@ -141,3 +142,4 @@ Gemini API 호출 (gemini-2.5-flash → gemma-3-27b-it 폴백)
 - **LLM 캐싱**: 동일한 재료 조합은 SHA-256 해시로 캐싱하여 Gemini API 비용 절감
 - **모델 폴백**: `gemini-2.5-flash` 할당량 초과(429) 시 `gemma-3-27b-it`으로 자동 전환
 - **신선도 TTL**: 싱싱 +48시간, 임박 +24시간 유효기간 자동 계산
+- **카테고리 오버라이딩**: 식재료 신규 등록 시 LLM의 자동 분류를 활용하되, 사용자가 명시한 카테고리가 있다면 이를 최우선으로 적용하여 일관된 DB 상태 유지

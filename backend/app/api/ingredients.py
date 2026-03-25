@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlmodel import Session, select
 
@@ -17,7 +15,7 @@ router = APIRouter(prefix="/ingredients", tags=["ingredients"])
 
 @router.get("/", response_model=list[IngredientResponse])
 def get_ingredients(
-    category: Optional[str] = Query(default=None, description="카테고리 필터 (예: frequent)"),
+    category: str | None = Query(default=None, description="카테고리 필터 (예: frequent)"),
     session: Session = Depends(get_session),
 ) -> list[Ingredient]:
     """
@@ -35,7 +33,7 @@ def get_ingredients(
     if category:
         query = query.where(Ingredient.category == category)
 
-    ingredients = session.exec(query).all()
+    ingredients = list(session.exec(query).all())
     return ingredients
 
 
@@ -60,7 +58,7 @@ async def create_ingredient(
         4. 식용 가능 → DB INSERT 후 반환 (201, is_new=True)
     """
     name = body.name.strip()
-    category_from_user = getattr(body, "category", None)
+    category_from_user = body.category
 
     # 1. 중복 확인 — LLM 호출 없이 즉시 반환 (200)
     existing = session.exec(
@@ -88,7 +86,7 @@ async def create_ingredient(
         )
 
     # 4. DB에 저장 (201)
-    final_category = category_from_user if category_from_user else result.get("category")
+    final_category: str = category_from_user or result.get("category") or "기타"
     ingredient = Ingredient(name=name, category=final_category)
     session.add(ingredient)
     session.commit()

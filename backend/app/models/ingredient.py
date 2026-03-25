@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import ClassVar
 from uuid import UUID, uuid4
 
 from sqlmodel import Field, SQLModel
@@ -11,7 +12,7 @@ class Ingredient(SQLModel, table=True):
     - unit 컬럼은 MVP 단계에서 UX 혼란 방지를 위해 제외되었습니다.
     """
 
-    __tablename__ = "ingredients"
+    __tablename__: ClassVar[str] = "ingredients"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(index=True, description="식재료명")
